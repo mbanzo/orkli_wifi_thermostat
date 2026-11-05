@@ -29,24 +29,21 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ):
     """Set up the Climates."""
-    # This gets the data update coordinator from hass.data as specified in your __init__.py
-    coordinator: OrkliCoordinator = hass.data[DOMAIN][config_entry.entry_id].coordinator
 
-    # Enumerate all the sensors in your data value from your DataUpdateCoordinator and add an instance of your sensor class
-    # to a list for each one.
-    # This maybe different in your specific case, depending on how your data is structured
-    climateDevices = [
-        ExampleClimate(coordinator, device) for device in coordinator.data.devices
+    coordinator: OrkliCoordinator = hass.data[DOMAIN][
+        config_entry.entry_id
+    ].coordinator
+
+    climate_devices = [
+        ExampleClimate(coordinator, device)
+        for device in coordinator.data.devices
     ]
 
-    # Create the sensors.
-    async_add_entities(climateDevices)
+    async_add_entities(climate_devices)
 
 
 class ExampleClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
     """Implementation of a climate entity."""
-
-    # _unrecorded_attributes = ["target_temperature_high", "target_temperature_low"]
 
     @property
     def supported_features(self) -> ClimateEntityFeature:
@@ -58,21 +55,19 @@ class ExampleClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         )
 
     def __init__(self, coordinator: OrkliCoordinator, device: Device) -> None:
-        """Initialise sensor."""
+        """Initialise climate entity."""
         super().__init__(coordinator)
         self.device = device
         self.device_id = device.device_id
 
     @callback
     def _handle_coordinator_update(self) -> None:
-        """Update sensor with latest data from coordinator."""
-        # This method is called by your DataUpdateCoordinator when a successful update runs.
+        """Update entity with latest data from coordinator."""
         self.device = self.coordinator.get_device_by_id(self.device_id)
         self.async_write_ha_state()
 
     @property
-    def hvac_modes(self) -> list[HVACMode]:
-        """Offer zone power control in the device's currently cached mode."""
+    def hvac_modes(self) -> list"""Offer zone power control in the device's currently cached mode."""
         mode = self._device_hvac_mode
         return [HVACMode.OFF, mode] if mode is not None else [HVACMode.OFF]
 
@@ -106,12 +101,12 @@ class ExampleClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
 
     @property
     def name(self) -> str:
-        """Return the name of the sensor."""
+        """Return the entity name."""
         return self.device.name
 
     @property
-    def current_temperature(self) -> float | None:
-        """Return the state of the entity."""
+    def native_current_temperature(self) -> float | None:
+        """Return the current temperature."""
         return (
             (162.0 - float(self.device.current_temperature)) / 2.0
             if self.device.current_temperature is not None
@@ -119,7 +114,7 @@ class ExampleClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         )
 
     @property
-    def target_temperature(self) -> float | None:
+    def native_target_temperature(self) -> float | None:
         """Return the target temperature."""
         return (
             float(self.device.target_temperature) / 2.0
@@ -129,7 +124,7 @@ class ExampleClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
 
     @property
     def current_humidity(self) -> float | None:
-        """Return the state of the entity."""
+        """Return current humidity."""
         return (
             int(float(self.device.current_humidity) / 2.55)
             if self.device.current_humidity is not None
@@ -137,90 +132,113 @@ class ExampleClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         )
 
     @property
-    def temperature_unit(self) -> str:
-        """Return unit of temperature."""
+    def native_temperature_unit(self) -> str:
+        """Return temperature unit."""
         return UnitOfTemperature.CELSIUS
 
     @property
-    def min_temp(self) -> float:
-        """Return the minimum temperature."""
+    def native_min_temp(self) -> float:
+        """Return minimum temperature."""
         return 15.0
 
     @property
-    def max_temp(self) -> float:
-        """Return the maximum temperature."""
+    def native_max_temp(self) -> float:
+        """Return maximum temperature."""
         return 35.0
 
     @property
     def precision(self) -> float:
-        """Return the precision of the system."""
+        """Return temperature precision."""
         return 0.5
 
     @property
     def target_temperature_step(self) -> float:
-        """Return the supported step of target temperature."""
+        """Return supported target temperature step."""
         return 0.5
 
     async def async_added_to_hass(self):
-        """Run when entity about to be added."""
+        """Run when entity is added to Home Assistant."""
         await super().async_added_to_hass()
 
-        # Check If we have an old state
         previous_state = await self.async_get_last_state()
+
         if previous_state is not None:
-            # Restore previous state
-            self.device.current_temperature = (
-                (162 - (previous_state.attributes.get("current_temperature") * 2))
-                if previous_state.attributes.get("current_temperature") is not None
-                else None
+
+            restored_current_temp = previous_state.attributes.get(
+                "native_current_temperature",
+                previous_state.attributes.get("current_temperature"),
             )
-            self.device.current_humidity = (
-                (previous_state.attributes.get("current_humidity") * 2.55)
-                if previous_state.attributes.get("current_humidity") is not None
-                else None
+
+            if restored_current_temp is not None:
+                self.device.current_temperature = (
+                    162 - (restored_current_temp * 2)
+                )
+
+            restored_target_temp = previous_state.attributes.get(
+                "temperature",
+                previous_state.attributes.get(
+                    "native_target_temperature",
+                    previous_state.attributes.get("target_temperature"),
+                ),
             )
-            self.device.target_temperature = (
-                (previous_state.attributes.get("temperature") * 2)
-                if previous_state.attributes.get("temperature") is not None
-                else None
+
+            if restored_target_temp is not None:
+                self.device.target_temperature = (
+                    restored_target_temp * 2
+                )
+
+            restored_humidity = previous_state.attributes.get(
+                "current_humidity"
             )
-            # Power and mode belong to coordinator data. A saved climate state
-            # may describe a different season or predate a live device update.
+
+            if restored_humidity is not None:
+                self.device.current_humidity = (
+                    restored_humidity * 2.55
+                )
 
     async def async_set_temperature(self, **kwargs):
         """Set new target temperature."""
         await self.coordinator.async_send_temp_command(
-            self.device, kwargs.get("temperature")
+            self.device,
+            kwargs.get("temperature"),
         )
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
-        """Enable or disable the zone without changing its heat/cool mode."""
+        """Enable or disable the zone without changing mode."""
         if hvac_mode not in self.hvac_modes:
             raise ServiceValidationError(
                 translation_domain=DOMAIN,
                 translation_key="unsupported_hvac_mode",
-                translation_placeholders={"name": self.name, "mode": str(hvac_mode)},
+                translation_placeholders={
+                    "name": self.name,
+                    "mode": str(hvac_mode),
+                },
             )
+
         await self._async_set_zone_power(hvac_mode != HVACMode.OFF)
 
     async def async_turn_on(self) -> None:
-        """Enable the zone using its existing mode, including an unknown mode."""
+        """Turn the zone on."""
         await self._async_set_zone_power(True)
 
     async def async_turn_off(self) -> None:
-        """Disable the zone without changing its stored mode."""
+        """Turn the zone off."""
         await self._async_set_zone_power(False)
 
     async def _async_set_zone_power(self, on: bool) -> None:
-        """Send the existing power command and let telemetry confirm state."""
+        """Send power command and wait for telemetry."""
         try:
-            sent = await self.coordinator.async_send_toggle_command(self.device, on)
+            sent = await self.coordinator.async_send_toggle_command(
+                self.device,
+                on,
+            )
         except (APIConnectionError, OSError) as err:
             raise HomeAssistantError(
                 translation_domain=DOMAIN,
                 translation_key="zone_power_failed",
                 translation_placeholders={"name": self.name},
             ) from err
+
         if not sent:
             raise HomeAssistantError(
                 translation_domain=DOMAIN,
@@ -231,14 +249,11 @@ class ExampleClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
     @property
     def unique_id(self) -> str:
         """Return unique id."""
-        # All entities must have a unique id.  Think carefully what you want this to be as
-        # changing it later will cause HA to create new entities.
         return f"{DOMAIN}-{self.device.device_unique_id}"
 
     @property
     def extra_state_attributes(self):
-        """Return the extra state attributes."""
-        # Add any additional attributes you want on your sensor.
-        attrs = {}
-        attrs["extra_info"] = "Extra Info"
-        return attrs
+        """Return extra attributes."""
+        return {
+            "extra_info": "Extra Info",
+        }
